@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🐾 Dog Trick Challenge</title>
+
+  <!-- Teachable Machine & TF -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;800&display=swap');
+
+    :root {
+      --bg: #0d0d1a;
+      --panel: #12122a;
+      --card: #1a1a35;
+      --accent: #f9c846;
+      --accent2: #ff6b6b;
+      --green: #4ade80;
+      --blue: #60a5fa;
+      --purple: #a78bfa;
+      --border: rgba(255,255,255,0.08);
+      --text: #f0f0ff;
+      --muted: #8888aa;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Nunito', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Starfield background ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(167,139,250,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 80%, rgba(96,165,250,0.10) 0%, transparent 60%);
+      pointer-events: none; z-index: 0;
+    }
+
+    header {
+      position: relative; z-index: 1;
+      text-align: center;
+      padding: 28px 16px 12px;
+    }
+    header h1 {
+      font-family: 'Fredoka One', cursive;
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 60%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      letter-spacing: 2px;
+    }
+    header p { color: var(--muted); font-size: .95rem; margin-top: 4px; }
+
+    /* ── MAIN LAYOUT ── */
+    .main {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 20px;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 20px 40px;
+    }
+    @media(max-width: 900px) {
+      .main { grid-template-columns: 1fr; }
+    }
+
+    /* ── LEFT column ── */
+    .left { display: flex; flex-direction: column; gap: 16px; }
+
+    /* YouTube embed */
+    .video-wrap {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+    .video-wrap iframe {
+      width: 100%; aspect-ratio: 16/9; display: block;
+    }
+    .video-overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(13,13,26,0.85);
+      font-size: 1.1rem; color: var(--muted);
+      transition: opacity .4s;
+    }
+    .video-overlay.hidden { opacity: 0; pointer-events: none; }
+
+    /* Pose canvas row */
+    .pose-row {
+      display: flex; gap: 12px; align-items: flex-start;
+    }
+    .pose-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden;
+      flex-shrink: 0;
+    }
+    #poseCanvas { display: block; width: 220px; height: 165px; }
+
+    /* Confidence bars */
+    .conf-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      flex: 1;
+    }
+    .conf-box h3 { font-size: .82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    .bar-row { margin-bottom: 7px; }
+    .bar-label {
+      display: flex; justify-content: space-between;
+      font-size: .78rem; color: var(--muted); margin-bottom: 3px;
+    }
+    .bar-track {
+      background: rgba(255,255,255,0.06);
+      border-radius: 99px; height: 8px; overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, var(--blue), var(--purple));
+      transition: width .15s ease;
+    }
+    .bar-fill.active { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+    /* ── RIGHT column ── */
+    .right { display: flex; flex-direction: column; gap: 16px; }
+
+    /* Score card */
+    .score-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px 20px 18px;
+      text-align: center;
+    }
+    .score-label { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+    .score-num {
+      font-family: 'Fredoka One', cursive;
+      font-size: 4rem;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      transition: transform .15s;
+    }
+    .score-num.pop { animation: pop .25s ease; }
+    @keyframes pop { 0%{transform:scale(1.4)} 100%{transform:scale(1)} }
+    .combo-badge {
+      display: inline-block;
+      background: var(--purple); color: white;
+      border-radius: 99px; padding: 2px 12px;
+      font-size: .78rem; font-weight: 800;
+      margin-top: 6px;
+      opacity: 0; transition: opacity .3s;
+    }
+    .combo-badge.show { opacity: 1; }
+
+    /* Current challenge */
+    .challenge-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      text-align: center;
+    }
+    .challenge-card h3 { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; }
+    .trick-name {
+      font-family: 'Fredoka One', cursive;
+      font-size: 2.2rem;
+      letter-spacing: 2px;
+      transition: all .3s;
+    }
+    .trick-emoji { font-size: 2.8rem; margin-bottom: 6px; }
+    .hold-bar-wrap {
+      background: rgba(255,255,255,0.06);
+      border-radius: 99px; height: 10px;
+      margin-top: 12px; overflow: hidden;
+    }
+    .hold-bar {
+      height: 100%; border-radius: 99px; width: 0%;
+      background: linear-gradient(90deg, var(--green), var(--blue));
+      transition: width .1s linear;
+    }
+    .hold-hint { font-size: .75rem; color: var(--muted); margin-top: 6px; }
+
+    /* Sequence list */
+    .seq-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px 16px;
+      flex: 1;
+    }
+    .seq-card h3 { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px; }
+    .seq-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .seq-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px; border-radius: 10px;
+      font-size: .88rem; font-weight: 600;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid transparent;
+      transition: all .3s;
+    }
+    .seq-item .si-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.08);
+      font-size: .7rem; font-weight: 800; flex-shrink: 0;
+    }
+    .seq-item.done {
+      color: var(--green);
+      border-color: rgba(74,222,128,0.25);
+      background: rgba(74,222,128,0.08);
+    }
+    .seq-item.done .si-num { background: rgba(74,222,128,0.3); }
+    .seq-item.active {
+      color: var(--accent);
+      border-color: rgba(249,200,70,0.3);
+      background: rgba(249,200,70,0.08);
+      box-shadow: 0 0 14px rgba(249,200,70,0.12);
+    }
+    .seq-item.active .si-num { background: rgba(249,200,70,0.3); }
+    .seq-item .si-time { margin-left: auto; font-size: .72rem; color: var(--muted); }
+
+    /* Feedback toast */
+    .toast {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-80px);
+      background: var(--green); color: #0d0d1a;
+      font-family: 'Fredoka One', cursive;
+      font-size: 1.5rem; letter-spacing: 2px;
+      padding: 12px 36px; border-radius: 99px;
+      pointer-events: none; z-index: 999;
+      transition: transform .35s cubic-bezier(0.34,1.56,0.64,1), opacity .35s;
+      opacity: 0;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    .toast.wrong { background: var(--accent2); color: white; }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 10px; }
+    .btn {
+      flex: 1; padding: 12px;
+      border-radius: 12px; border: none; cursor: pointer;
+      font-family: 'Fredoka One', cursive; font-size: 1rem; letter-spacing: 1px;
+      transition: transform .15s, opacity .15s;
+    }
+    .btn:active { transform: scale(.96); }
+    .btn-start { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #0d0d1a; }
+    .btn-reset { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
+    .btn:disabled { opacity: .4; cursor: default; }
+
+    /* Status */
+    .status-dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--muted);
+      margin-right: 6px; vertical-align: middle;
+    }
+    .status-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .status-text { font-size: .8rem; color: var(--muted); }
+
+    /* ── Result overlay ── */
+    .result-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(13,13,26,0.92);
+      align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px;
+    }
+    .result-overlay.show { display: flex; }
+    .result-overlay h2 {
+      font-family: 'Fredoka One', cursive;
+      font-size: 3rem;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .result-overlay p { color: var(--muted); font-size: 1.1rem; }
+    .result-overlay .final-score {
+      font-family: 'Fredoka One', cursive; font-size: 5rem;
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🐾 Dog Trick Challenge</h1>
+  <p>영상 속 강아지를 따라하고 점수를 올려보세요!</p>
+</header>
+
+<!-- Toast feedback -->
+<div class="toast" id="toast">GREAT!</div>
+
+<!-- Result overlay -->
+<div class="result-overlay" id="resultOverlay">
+  <div style="font-size:4rem">🏆</div>
+  <h2>게임 완료!</h2>
+  <div class="final-score" id="finalScore">0</div>
+  <p>점수를 기록했습니다</p>
+  <button class="btn btn-start" style="padding:14px 40px;font-size:1.1rem" onclick="resetGame()">다시 하기</button>
+</div>
+
+<div class="main">
+  <!-- LEFT -->
+  <div class="left">
+
+    <!-- YouTube -->
+    <div class="video-wrap">
+      <iframe id="ytPlayer"
+        src="https://www.youtube.com/embed/oRr5hxr_bRA?enablejsapi=1&rel=0"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+      <div class="video-overlay" id="videoOverlay">
+        ▶ 시작 버튼을 눌러 게임을 시작하세요
+      </div>
+    </div>
+
+    <!-- Pose + confidence -->
+    <div class="pose-row">
+      <div class="pose-box">
+        <canvas id="poseCanvas" width="320" height="240"></canvas>
+      </div>
+      <div class="conf-box">
+        <h3>포즈 감지</h3>
+        <div id="confBars"></div>
+        <div style="margin-top:10px">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">모델 로딩 중…</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right">
+
+    <!-- Score -->
+    <div class="score-card">
+      <div class="score-label">Score</div>
+      <div class="score-num" id="scoreNum">0</div>
+      <div class="combo-badge" id="comboBadge">🔥 COMBO x2</div>
+    </div>
+
+    <!-- Current challenge -->
+    <div class="challenge-card">
+      <h3>현재 동작</h3>
+      <div class="trick-emoji" id="trickEmoji">❓</div>
+      <div class="trick-name" id="trickName">—</div>
+      <div class="hold-bar-wrap">
+        <div class="hold-bar" id="holdBar"></div>
+      </div>
+      <div class="hold-hint" id="holdHint">동작을 1.5초 유지하세요</div>
+    </div>
+
+    <!-- Sequence -->
+    <div class="seq-card">
+      <h3>동작 순서</h3>
+      <ul class="seq-list" id="seqList"></ul>
+    </div>
+
+    <!-- Buttons -->
+    <div class="btn-row">
+      <button class="btn btn-start" id="btnStart" onclick="startGame()">▶ 시작</button>
+      <button class="btn btn-reset" onclick="resetGame()">↺ 초기화</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────────────
+const MODEL_URL = 'https://teachablemachine.withgoogle.com/models/zXloZdmha/';
+
+// Sequence: [trick, videoTimeSec, emoji, points]
+// Adjust timestamps to match the actual YouTube video content
+const SEQUENCE = [
+  { trick: 'REST',   time:  3,  emoji: '😴', pts: 10 },
+  { trick: 'SAY HI', time: 12,  emoji: '👋', pts: 20 },
+  { trick: 'WALK',   time: 22,  emoji: '🚶', pts: 15 },
+  { trick: 'SWING',  time: 35,  emoji: '🎶', pts: 25 },
+  { trick: 'PAW',    time: 48,  emoji: '🐾', pts: 20 },
+  { trick: 'JUMP',   time: 58,  emoji: '🦘', pts: 30 },
+];
+
+const HOLD_MS     = 1500;   // ms to hold correct pose
+const CONF_THRESH = 0.75;   // confidence threshold
+const ADVANCE_WIN = 8;      // seconds after trick time to still accept
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let model, webcam, ctx;
+let score = 0, combo = 1;
+let seqIdx = 0;
+let holdStart = null;
+let gameRunning = false;
+let detected = null;
+let animFrame = null;
+
+const classes = ['REST','SAY HI','WALK','SWING','PAW','JUMP'];
+const classConf = {};
+classes.forEach(c => classConf[c] = 0);
+
+// ── DOM REFS ─────────────────────────────────────────────────────────────────
+const scoreNumEl  = document.getElementById('scoreNum');
+const comboBadge  = document.getElementById('comboBadge');
+const trickEmoji  = document.getElementById('trickEmoji');
+const trickName   = document.getElementById('trickName');
+const holdBar     = document.getElementById('holdBar');
+const holdHint    = document.getElementById('holdHint');
+const seqList     = document.getElementById('seqList');
+const toast       = document.getElementById('toast');
+const statusDot   = document.getElementById('statusDot');
+const statusText  = document.getElementById('statusText');
+const confBars    = document.getElementById('confBars');
+const btnStart    = document.getElementById('btnStart');
+const videoOverlay= document.getElementById('videoOverlay');
+const ytPlayer    = document.getElementById('ytPlayer');
+const resultOverlay= document.getElementById('resultOverlay');
+const finalScore  = document.getElementById('finalScore');
+
+// ── INIT CONFIDENCE BARS ──────────────────────────────────────────────────────
+function initConfBars() {
+  confBars.innerHTML = '';
+  classes.forEach(c => {
+    confBars.innerHTML += `
+      <div class="bar-row" id="row-${c.replace(' ','-')}">
+        <div class="bar-label"><span>${c}</span><span id="pct-${c.replace(' ','-')}">0%</span></div>
+        <div class="bar-track"><div class="bar-fill" id="fill-${c.replace(' ','-')}" style="width:0%"></div></div>
+      </div>`;
+  });
+}
+initConfBars();
+
+function updateConfBars(preds) {
+  preds.forEach(p => {
+    const key = p.className.replace(' ','-');
+    const pct = Math.round(p.probability * 100);
+    const fillEl = document.getElementById('fill-' + key);
+    const pctEl  = document.getElementById('pct-'  + key);
+    if (fillEl) {
+      fillEl.style.width = pct + '%';
+      fillEl.classList.toggle('active', pct > CONF_THRESH * 100);
+    }
+    if (pctEl) pctEl.textContent = pct + '%';
+  });
+}
+
+// ── BUILD SEQUENCE LIST ───────────────────────────────────────────────────────
+function buildSeqList() {
+  seqList.innerHTML = '';
+  SEQUENCE.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.className = 'seq-item' + (i === 0 ? ' active' : '');
+    li.id = 'seq-' + i;
+    li.innerHTML = `
+      <div class="si-num">${i+1}</div>
+      <span>${s.emoji} ${s.trick}</span>
+      <span class="si-time">${formatTime(s.time)}</span>`;
+    seqList.appendChild(li);
+  });
+}
+buildSeqList();
+
+function formatTime(s) {
+  const m = Math.floor(s/60), sec = s%60;
+  return `${m}:${sec.toString().padStart(2,'0')}`;
+}
+
+function updateSeqList() {
+  SEQUENCE.forEach((_, i) => {
+    const el = document.getElementById('seq-' + i);
+    if (!el) return;
+    el.className = 'seq-item' +
+      (i < seqIdx ? ' done' : i === seqIdx ? ' active' : '');
+  });
+}
+
+// ── LOAD MODEL ────────────────────────────────────────────────────────────────
+async function loadModel() {
+  statusText.textContent = '모델 로딩 중…';
+  try {
+    const modelURL     = MODEL_URL + 'model.json';
+    const metadataURL  = MODEL_URL + 'metadata.json';
+    model = await tmPose.load(modelURL, metadataURL);
+    statusText.textContent = '웹캠 연결 중…';
+    await setupWebcam();
+    statusDot.classList.add('on');
+    statusText.textContent = '준비 완료';
+    btnStart.disabled = false;
+  } catch(e) {
+    statusText.textContent = '로드 실패: ' + e.message;
+    console.error(e);
+  }
+}
+
+async function setupWebcam() {
+  const canvas = document.getElementById('poseCanvas');
+  ctx = canvas.getContext('2d');
+  webcam = new tmPose.Webcam(320, 240, true);
+  await webcam.setup({ facingMode: 'user' });
+  await webcam.play();
+  requestAnimationFrame(poseLoop);
+}
+
+// ── POSE LOOP (always running after model loads) ─────────────────────────────
+async function poseLoop() {
+  if (!model || !webcam) { animFrame = requestAnimationFrame(poseLoop); return; }
+  webcam.update();
+  const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+  const preds = await model.predict(posenetOutput);
+
+  // draw
+  ctx.clearRect(0,0,320,240);
+  ctx.save();
+  ctx.scale(-1,1); ctx.translate(-320,0);
+  ctx.drawImage(webcam.canvas, 0, 0);
+  ctx.restore();
+  if (pose) drawKeypoints(pose);
+
+  // find top prediction
+  let top = null;
+  preds.forEach(p => {
+    classConf[p.className] = p.probability;
+    if (!top || p.probability > top.probability) top = p;
+  });
+  detected = (top && top.probability >= CONF_THRESH) ? top.className : null;
+
+  updateConfBars(preds);
+
+  if (gameRunning) checkTrick();
+
+  animFrame = requestAnimationFrame(poseLoop);
+}
+
+function drawKeypoints(pose) {
+  const kps = pose.keypoints;
+  ctx.strokeStyle = 'rgba(249,200,70,0.7)';
+  ctx.lineWidth = 2;
+  const pairs = [[5,7],[7,9],[6,8],[8,10],[5,6],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+  pairs.forEach(([a,b]) => {
+    const ka = kps[a], kb = kps[b];
+    if (ka.score > 0.3 && kb.score > 0.3) {
+      ctx.beginPath();
+      ctx.moveTo(320 - ka.position.x, ka.position.y);
+      ctx.lineTo(320 - kb.position.x, kb.position.y);
+      ctx.stroke();
+    }
+  });
+  kps.forEach(kp => {
+    if (kp.score > 0.3) {
+      ctx.beginPath();
+      ctx.arc(320 - kp.position.x, kp.position.y, 4, 0, 2*Math.PI);
+      ctx.fillStyle = 'rgba(249,200,70,0.9)';
+      ctx.fill();
+    }
+  });
+}
+
+// ── GAME LOGIC ────────────────────────────────────────────────────────────────
+function startGame() {
+  if (gameRunning) return;
+  gameRunning = true;
+  seqIdx = 0;
+  score = 0; combo = 1;
+  scoreNumEl.textContent = '0';
+  holdStart = null;
+  holdBar.style.width = '0%';
+  updateSeqList();
+  videoOverlay.classList.add('hidden');
+  btnStart.disabled = true;
+  showCurrentTrick();
+  // Seek YouTube video to start
+  ytPlayer.contentWindow.postMessage(
+    JSON.stringify({event:'command', func:'seekTo', args:[0,true]}), '*');
+  ytPlayer.contentWindow.postMessage(
+    JSON.stringify({event:'command', func:'playVideo', args:[]}), '*');
+}
+
+function showCurrentTrick() {
+  if (seqIdx >= SEQUENCE.length) { endGame(); return; }
+  const s = SEQUENCE[seqIdx];
+  trickEmoji.textContent = s.emoji;
+  trickName.textContent  = s.trick;
+  holdBar.style.width = '0%';
+  holdStart = null;
+  trickName.style.color = 'var(--text)';
+}
+
+function checkTrick() {
+  if (seqIdx >= SEQUENCE.length) return;
+  const s = SEQUENCE[seqIdx];
+  const correct = (detected === s.trick);
+
+  if (correct) {
+    if (!holdStart) holdStart = Date.now();
+    const elapsed = Date.now() - holdStart;
+    const pct = Math.min(100, (elapsed / HOLD_MS) * 100);
+    holdBar.style.width = pct + '%';
+    holdHint.textContent = `유지 중… ${Math.ceil((HOLD_MS - elapsed)/100)/10}초`;
+
+    if (elapsed >= HOLD_MS) {
+      // SUCCESS
+      awardPoint(s);
+      seqIdx++;
+      updateSeqList();
+      showCurrentTrick();
+    }
+  } else {
+    holdStart = null;
+    holdBar.style.width = '0%';
+    holdHint.textContent = '동작을 1.5초 유지하세요';
+  }
+}
+
+function awardPoint(s) {
+  const pts = s.pts * combo;
+  score += pts;
+  scoreNumEl.textContent = score;
+  scoreNumEl.classList.remove('pop');
+  void scoreNumEl.offsetWidth;
+  scoreNumEl.classList.add('pop');
+
+  combo = Math.min(combo + 1, 4);
+  if (combo >= 2) {
+    comboBadge.textContent = `🔥 COMBO x${combo}`;
+    comboBadge.classList.add('show');
+  } else {
+    comboBadge.classList.remove('show');
+  }
+
+  showToast('GREAT! +' + pts, false);
+}
+
+function showToast(msg, wrong) {
+  toast.textContent = msg;
+  toast.classList.toggle('wrong', wrong);
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 1200);
+}
+
+function endGame() {
+  gameRunning = false;
+  finalScore.textContent = score;
+  resultOverlay.classList.add('show');
+  ytPlayer.contentWindow.postMessage(
+    JSON.stringify({event:'command', func:'pauseVideo', args:[]}), '*');
+}
+
+function resetGame() {
+  gameRunning = false;
+  seqIdx = 0; score = 0; combo = 1;
+  scoreNumEl.textContent = '0';
+  holdBar.style.width = '0%';
+  holdHint.textContent = '동작을 1.5초 유지하세요';
+  trickEmoji.textContent = '❓';
+  trickName.textContent = '—';
+  comboBadge.classList.remove('show');
+  videoOverlay.classList.remove('hidden');
+  btnStart.disabled = false;
+  updateSeqList();
+  resultOverlay.classList.remove('show');
+  ytPlayer.contentWindow.postMessage(
+    JSON.stringify({event:'command', func:'pauseVideo', args:[]}), '*');
+}
+
+// ── YOUTUBE TIME SYNC ─────────────────────────────────────────────────────────
+// Poll YouTube iframe API for current time to highlight upcoming tricks
+let ytCurrentTime = 0;
+setInterval(() => {
+  if (!gameRunning) return;
+  ytPlayer.contentWindow.postMessage(
+    JSON.stringify({event:'listening'}), '*');
+}, 1000);
+
+window.addEventListener('message', (e) => {
+  try {
+    const data = JSON.parse(e.data);
+    if (data.info && data.info.currentTime !== undefined) {
+      ytCurrentTime = data.info.currentTime;
+      syncVideoToTrick(ytCurrentTime);
+    }
+  } catch(_) {}
+});
+
+function syncVideoToTrick(t) {
+  if (seqIdx >= SEQUENCE.length) return;
+  const s = SEQUENCE[seqIdx];
+  // Highlight trick name based on time proximity
+  const diff = Math.abs(t - s.time);
+  if (diff < 5) {
+    trickName.style.color = 'var(--accent)';
+  } else {
+    trickName.style.color = 'var(--text)';
+  }
+}
+
+// ── START ──────────────────────────────────────────────────────────────────────
+btnStart.disabled = true;
+loadModel();
+</script>
+</body>
+</html>
